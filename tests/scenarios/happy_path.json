@@ -1,0 +1,21 @@
+{
+  "name": "happy_path",
+  "request": "Design a URL shortener service and recommend a database",
+  "fake_script": {},
+  "env": {},
+  "expect": {
+    "stop_reason": "approved",
+    "revisions": 1,
+    "agent_calls": 11
+  },
+  "budget": {
+    "max_total_tokens": 3700,
+    "max_cost_usd": 0.0003
+  },
+  "live": true,
+  "live_budget": {
+    "max_total_tokens": 60000,
+    "max_cost_usd": 0.01,
+    "max_wall_clock_s": 300
+  }
+}

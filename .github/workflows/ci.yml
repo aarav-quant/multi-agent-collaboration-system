@@ -1,0 +1,39 @@
+# CI: runs on every push and pull request. No AWS credentials needed.
+#  - unit tests for agents, handlers and the agent graph
+#  - fixed task scenarios: termination (no infinite loops) + COST GUARDRAILS
+#  - static loop-guard checks on the versioned ASL definition
+#  - ASL drift check: the state machine in CDK must match asl/ tracked in git
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          npm install -g aws-cdk
+
+      - name: Unit + scenario + cost-guardrail + termination tests
+        run: pytest -v
+
+      - name: ASL drift check (versioned state machine definition)
+        run: python scripts/export_asl.py --check
+
+      - name: Synthesize CloudFormation
+        run: cdk synth -c skip_bundling=true -q

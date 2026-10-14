@@ -1,0 +1,6 @@
+# Bundled into the Lambda code asset
+langgraph>=1.2,<2
+langchain-aws>=1.8,<2
+langchain-core>=1.6,<2
+aws-xray-sdk>=2.15,<3
+boto3>=1.40

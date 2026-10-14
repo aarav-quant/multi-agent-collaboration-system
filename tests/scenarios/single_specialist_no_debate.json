@@ -1,0 +1,24 @@
+{
+  "name": "single_specialist_no_debate",
+  "request": "Write a Python function that validates an Indian PAN number format",
+  "fake_script": {
+    "planner": [
+      "{\"subtasks\": [{\"agent\": \"coder\", \"instruction\": \"Write and explain the function.\"}]}"
+    ]
+  },
+  "env": {},
+  "expect": {
+    "stop_reason": "approved",
+    "agent_calls": 6
+  },
+  "budget": {
+    "max_total_tokens": 1500,
+    "max_cost_usd": 0.00012
+  },
+  "live": true,
+  "live_budget": {
+    "max_total_tokens": 60000,
+    "max_cost_usd": 0.01,
+    "max_wall_clock_s": 300
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "planner_returns_garbage",
+  "request": "Design a URL shortener service and recommend a database",
+  "fake_script": {
+    "planner": [
+      "not json",
+      "still not json"
+    ]
+  },
+  "env": {},
+  "expect": {
+    "stop_reason": "approved"
+  },
+  "budget": {
+    "max_total_tokens": 2600,
+    "max_cost_usd": 0.0002
+  },
+  "live": false,
+  "live_budget": {
+    "max_total_tokens": 60000,
+    "max_cost_usd": 0.01,
+    "max_wall_clock_s": 300
+  }
+}

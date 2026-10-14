@@ -1,0 +1,26 @@
+{
+  "name": "token_budget_stops_revisions",
+  "request": "Design a URL shortener service and recommend a database",
+  "fake_script": {
+    "critic": [
+      "{\"approved\": false, \"score\": 4, \"unresolved_conflicts\": [\"database choice\"], \"feedback\": \"Pick one database and justify it.\"}"
+    ]
+  },
+  "env": {
+    "TOKEN_BUDGET": "2500"
+  },
+  "expect": {
+    "stop_reason": "token_budget",
+    "revisions": 1
+  },
+  "budget": {
+    "max_total_tokens": 3700,
+    "max_cost_usd": 0.0003
+  },
+  "live": false,
+  "live_budget": {
+    "max_total_tokens": 60000,
+    "max_cost_usd": 0.01,
+    "max_wall_clock_s": 300
+  }
+}

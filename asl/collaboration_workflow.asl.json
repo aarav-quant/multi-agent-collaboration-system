@@ -1,0 +1,541 @@
+{
+  "StartAt": "DynamoDB - Record task started",
+  "States": {
+    "DynamoDB - Record task started": {
+      "Next": "EventBridge - Announce task started",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "ResultPath": null,
+      "Resource": "arn:${AWS::Partition}:states:::dynamodb:updateItem",
+      "Parameters": {
+        "Key": {
+          "pk": {
+            "S.$": "$.task_id"
+          },
+          "sk": {
+            "S": "META"
+          }
+        },
+        "TableName": "${StateTable}",
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "RUNNING"
+          },
+          ":e": {
+            "S.$": "$$.Execution.Id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, execution_id = :e"
+      }
+    },
+    "EventBridge - Announce task started": {
+      "Next": "Lambda - Planner agent (supervisor)",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "ResultPath": null,
+      "Resource": "arn:${AWS::Partition}:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "task_id.$": "$.task_id"
+            },
+            "DetailType": "WorkflowStarted",
+            "EventBusName": "${AgentBus.Arn}",
+            "Source": "mas.workflow"
+          }
+        ]
+      }
+    },
+    "Lambda - Planner agent (supervisor)": {
+      "Next": "Bedrock - Generate report title",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ClientExecutionTimeoutException",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "RetryableAgentError"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "Resource": "${PlannerAgent.Arn}"
+    },
+    "Bedrock - Generate report title": {
+      "Next": "DynamoDB - Save report title",
+      "Type": "Task",
+      "Resource": "arn:${AWS::Partition}:states:::bedrock:invokeModel",
+      "Parameters": {
+        "ModelId": "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/apac.amazon.nova-lite-v1:0",
+        "Body": {
+          "schemaVersion": "messages-v1",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "text.$": "States.Format('Write a short title (max 8 words, no quotes) for a report answering this request: {}', $.request)"
+                }
+              ]
+            }
+          ],
+          "inferenceConfig": {
+            "max_new_tokens": 40,
+            "temperature": 0.2
+          }
+        }
+      },
+      "ResultSelector": {
+        "text.$": "$.Body.output.message.content[0].text"
+      },
+      "ResultPath": "$.title",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.title_error",
+          "Next": "Use default title"
+        }
+      ]
+    },
+    "DynamoDB - Save report title": {
+      "Next": "Run specialist agents in parallel",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "ResultPath": null,
+      "Resource": "arn:${AWS::Partition}:states:::dynamodb:updateItem",
+      "Parameters": {
+        "Key": {
+          "pk": {
+            "S.$": "$.task_id"
+          },
+          "sk": {
+            "S": "META"
+          }
+        },
+        "TableName": "${StateTable}",
+        "ExpressionAttributeValues": {
+          ":t": {
+            "S.$": "$.title.text"
+          }
+        },
+        "UpdateExpression": "SET title = :t"
+      }
+    },
+    "Use default title": {
+      "Type": "Pass",
+      "Result": {
+        "text": "Multi-agent report"
+      },
+      "ResultPath": "$.title",
+      "Next": "DynamoDB - Save report title"
+    },
+    "Run specialist agents in parallel": {
+      "Type": "Map",
+      "ResultPath": "$.specialist_results",
+      "Next": "Peer debate between specialists",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "ItemsPath": "$.subtasks",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "Lambda - Specialist agent",
+        "States": {
+          "Lambda - Specialist agent": {
+            "End": true,
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ClientExecutionTimeoutException",
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 6,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "RetryableAgentError"
+                ],
+                "IntervalSeconds": 10,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
+              }
+            ],
+            "Type": "Task",
+            "Resource": "${SpecialistAgent.Arn}"
+          }
+        }
+      },
+      "MaxConcurrency": 4
+    },
+    "Peer debate between specialists": {
+      "Type": "Map",
+      "ResultPath": "$.debate_results",
+      "Next": "Lambda - Writer agent",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "ItemsPath": "$.subtasks",
+      "ItemSelector": {
+        "task_id.$": "$$.Map.Item.Value.task_id",
+        "index.$": "$$.Map.Item.Value.index",
+        "agent.$": "$$.Map.Item.Value.agent",
+        "instruction.$": "$$.Map.Item.Value.instruction",
+        "mode": "debate"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "Lambda - Debate round",
+        "States": {
+          "Lambda - Debate round": {
+            "End": true,
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ClientExecutionTimeoutException",
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 6,
+                "BackoffRate": 2
+              },
+              {
+                "ErrorEquals": [
+                  "RetryableAgentError"
+                ],
+                "IntervalSeconds": 10,
+                "MaxAttempts": 4,
+                "BackoffRate": 2
+              }
+            ],
+            "Type": "Task",
+            "Resource": "${SpecialistAgent.Arn}"
+          }
+        }
+      },
+      "MaxConcurrency": 4
+    },
+    "Lambda - Writer agent": {
+      "Next": "Lambda - Critic agent (judge)",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ClientExecutionTimeoutException",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "RetryableAgentError"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "Resource": "${WriterAgent.Arn}"
+    },
+    "Approved or revise?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.next_action",
+              "StringEquals": "revise"
+            },
+            {
+              "Variable": "$.revision",
+              "NumericLessThanEquals": 2
+            }
+          ],
+          "Next": "Lambda - Writer agent"
+        }
+      ],
+      "Default": "Lambda - Finalize task"
+    },
+    "Lambda - Critic agent (judge)": {
+      "Next": "Approved or revise?",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ClientExecutionTimeoutException",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "RetryableAgentError"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "Resource": "${CriticAgent.Arn}"
+    },
+    "MarkFailed": {
+      "Next": "WorkflowFailed",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ClientExecutionTimeoutException",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Type": "Task",
+      "Resource": "${MarkTaskFailed.Arn}",
+      "Parameters": {
+        "task_id.$": "$.task_id",
+        "error.$": "$.error"
+      }
+    },
+    "Lambda - Finalize task": {
+      "Next": "S3 - Verify final report",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ClientExecutionTimeoutException",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        },
+        {
+          "ErrorEquals": [
+            "RetryableAgentError"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 4,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "Resource": "${FinalizeTask.Arn}"
+    },
+    "S3 - Verify final report": {
+      "Next": "SQS - Send result notification",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "ResultPath": "$.report",
+      "ResultSelector": {
+        "size_bytes.$": "$.ContentLength"
+      },
+      "Resource": "arn:${AWS::Partition}:states:::aws-sdk:s3:headObject",
+      "Parameters": {
+        "Bucket": "${ArtifactBucket}",
+        "Key.$": "$.result_key"
+      }
+    },
+    "SQS - Send result notification": {
+      "Next": "CloudWatch - Publish completion metric",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "ResultPath": null,
+      "Resource": "arn:${AWS::Partition}:states:::sqs:sendMessage",
+      "Parameters": {
+        "QueueUrl": "${ResultsQueue}",
+        "MessageBody": {
+          "task_id.$": "$.task_id",
+          "bucket": "${ArtifactBucket}",
+          "result_key.$": "$.result_key",
+          "size_bytes.$": "$.report.size_bytes"
+        }
+      }
+    },
+    "CloudWatch - Publish completion metric": {
+      "Next": "EventBridge - Announce task completed",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "ResultPath": null,
+      "Resource": "arn:${AWS::Partition}:states:::aws-sdk:cloudwatch:putMetricData",
+      "Parameters": {
+        "Namespace": "MultiAgentSystem",
+        "MetricData": [
+          {
+            "MetricName": "TasksCompleted",
+            "Value": 1,
+            "Unit": "Count"
+          }
+        ]
+      }
+    },
+    "EventBridge - Announce task completed": {
+      "Next": "Done",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Type": "Task",
+      "ResultPath": null,
+      "Resource": "arn:${AWS::Partition}:states:::events:putEvents",
+      "Parameters": {
+        "Entries": [
+          {
+            "Detail": {
+              "task_id.$": "$.task_id"
+            },
+            "DetailType": "WorkflowCompleted",
+            "EventBusName": "${AgentBus.Arn}",
+            "Source": "mas.workflow"
+          }
+        ]
+      }
+    },
+    "Done": {
+      "Type": "Succeed"
+    },
+    "WorkflowFailed": {
+      "Type": "Fail"
+    }
+  },
+  "TimeoutSeconds": 1800
+}

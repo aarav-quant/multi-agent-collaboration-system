@@ -1,0 +1,24 @@
+{
+  "name": "critic_never_approves",
+  "request": "Design a URL shortener service and recommend a database",
+  "fake_script": {
+    "critic": [
+      "{\"approved\": false, \"score\": 4, \"unresolved_conflicts\": [\"database choice\"], \"feedback\": \"Pick one database and justify it.\"}"
+    ]
+  },
+  "env": {},
+  "expect": {
+    "stop_reason": "max_revisions",
+    "revisions": 2
+  },
+  "budget": {
+    "max_total_tokens": 4700,
+    "max_cost_usd": 0.0004
+  },
+  "live": false,
+  "live_budget": {
+    "max_total_tokens": 60000,
+    "max_cost_usd": 0.01,
+    "max_wall_clock_s": 300
+  }
+}

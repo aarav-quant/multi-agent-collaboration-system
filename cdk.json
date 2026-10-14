@@ -1,0 +1,26 @@
+{
+  "app": "python3 app.py",
+  "watch": {
+    "include": [
+      "**"
+    ],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "**/__pycache__",
+      "tests",
+      "local_output",
+      ".venv"
+    ]
+  },
+  "context": {
+    "model_id": "apac.amazon.nova-lite-v1:0",
+    "max_revisions": 2,
+    "max_subtasks": 4,
+    "token_budget": 60000,
+    "prompt_version": "v1",
+    "shadow_prompt_version": "",
+    "price_input_per_1k": "0.00006",
+    "price_output_per_1k": "0.00024"
+  }
+}

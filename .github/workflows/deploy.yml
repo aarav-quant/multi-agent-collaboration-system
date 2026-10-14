@@ -1,0 +1,72 @@
+# CD: deploy with CDK after CI passes on main, then run live smoke scenarios.
+#
+# One-time setup (see README "CI/CD"):
+#   1. Create an IAM role GitHub can assume via OIDC, and save its ARN as the
+#      repository secret AWS_DEPLOY_ROLE_ARN.
+#   2. Set the repository variable AWS_REGION (e.g. ap-southeast-2).
+#
+# Staged prompt rollout: run this workflow manually with
+#   shadow_prompt_version=v2  -> new prompts shadow-run next to the live ones
+#   prompt_version=v2         -> promote, once compare_prompts.py looks good
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      prompt_version:
+        description: Live prompt set
+        default: v1
+      shadow_prompt_version:
+        description: Prompt set to shadow-run (empty = off)
+        default: ""
+      run_live_scenarios:
+        description: Run live smoke scenarios after deploy
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write   # OIDC to AWS
+  contents: read
+
+concurrency: deploy-${{ github.ref }}
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Install
+        run: |
+          pip install -r requirements.txt boto3
+          npm install -g aws-cdk
+
+      - name: Deploy (new Step Functions version + live alias)
+        run: |
+          cdk deploy --require-approval never \
+            -c git_sha=${{ github.sha }} \
+            -c prompt_version=${{ inputs.prompt_version || 'v1' }} \
+            -c shadow_prompt_version=${{ inputs.shadow_prompt_version || '' }}
+
+      - name: Live smoke scenarios + cost guardrails (real Bedrock)
+        if: github.event_name != 'workflow_dispatch' || inputs.run_live_scenarios
+        run: python scripts/run_scenarios.py
