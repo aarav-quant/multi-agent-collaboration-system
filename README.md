@@ -82,6 +82,8 @@ src/agents/                 prompts (v1, v2) + LangGraph agent loop with token t
 src/handlers/               intake, planner, specialist (work + debate), mailbox, writer, critic, finalize
 src/common/                 config, DynamoDB blackboard, S3 storage, events, Bedrock/fake LLM, X-Ray
 src/workflow/local_graph.py the same agent graph in LangGraph (local runs, CI)
+src/web/index.html          the website (served by the WebApi Lambda)
+infra/github_oidc.py        one-time OIDC deploy role for GitHub Actions
 scripts/                    mas.py (client), run_local.py, run_scenarios.py, compare_prompts.py,
                             compare_single_vs_multi.py, export_asl.py
 tests/                      unit, scenario, cost-guardrail and termination tests
@@ -94,12 +96,27 @@ tests/                      unit, scenario, cost-guardrail and termination tests
 ```bash
 rm -rf multi-agent-collaboration-system && unzip -o multi-agent-collaboration-system.zip
 cd multi-agent-collaboration-system && pip3 install -r requirements.txt
-cdk bootstrap          # once per account/region
-cdk deploy             # model, budget and prompt version come from cdk.json
+cdk bootstrap                                   # once per account/region
+cdk deploy MultiAgentCollaborationStack         # model, budget and prompt version come from cdk.json
 ```
 `cdk.json` defaults to `apac.amazon.nova-lite-v1:0` (Sydney/Mumbai). For US regions, use `-c model_id=us.amazon.nova-lite-v1:0`.
 
-## Use it
+## Website
+The stack prints a **WebsiteUrl** output. Open it to type a question and watch the agents work live:
+a six-stage relay (plan, specialists, debate, write, critique, answer), every agent's message as it
+lands on the blackboard, the critic's verdicts, and the final report with time, calls, tokens, cost and
+score. One Lambda behind an API Gateway HTTP API serves the page (`src/web/index.html`) and the JSON API:
+
+| Route | What it does |
+|---|---|
+| `GET /` | The website |
+| `POST /api/tasks` | Submit a question (sent to the same SQS task queue) |
+| `GET /api/tasks/{id}` | Live status, agent messages, usage and the final report |
+
+The API is throttled to 2 requests/second (burst 5) so the public URL can't run up the Bedrock bill.
+To require a code for submitting questions, deploy with `-c site_access_code=<code>`.
+
+## Use it from the command line
 ```bash
 TASK=$(python3 scripts/mas.py submit "Design a URL shortener service and recommend a database")
 python3 scripts/mas.py result $TASK --wait     # final report + run summary
@@ -135,7 +152,14 @@ calls and the score, which shows what the extra quality costs.
 
 **Rollback:** in the Step Functions console, open **Aliases → live** and point it at a previous version. Old versions are retained on update.
 
-**One-time CD setup:** create an IAM role that GitHub can assume through OIDC (trust `token.actions.githubusercontent.com` for your repo), save its ARN as the secret `AWS_DEPLOY_ROLE_ARN`, and set the variable `AWS_REGION`.
+**One-time CD setup** (CI needs none of this and runs on every push):
+1. In CloudShell: `cdk deploy GitHubDeployRoleStack`. This creates GitHub's OIDC provider and a deploy role
+   that only workflows from this repository can assume, so no AWS keys are stored in GitHub.
+2. In GitHub, go to **Settings → Secrets and variables → Actions**:
+   - **Secrets:** add `AWS_DEPLOY_ROLE_ARN` = the `RoleArn` output from step 1.
+   - **Variables:** add `AWS_REGION` = `ap-southeast-2` (or your region).
+3. From then on, every push to `main` that passes CI deploys automatically and runs the live smoke scenarios.
+   **Actions → Deploy → Run workflow** deploys manually, including shadow prompt rollouts.
 
 ### Staged prompt rollout (shadow run)
 1. Add or modify a prompt set in `src/agents/prompts.py` (for example `v2`).

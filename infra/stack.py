@@ -25,7 +25,8 @@ from aws_cdk import (BundlingOptions, CfnDeletionPolicy, CfnOutput, Duration, IL
                      aws_events_targets as targets, aws_iam as iam, aws_lambda as _lambda,
                      aws_lambda_event_sources as sources, aws_logs as logs, aws_s3 as s3,
                      aws_sqs as sqs, aws_stepfunctions as sfn,
-                     aws_stepfunctions_tasks as tasks)
+                     aws_stepfunctions_tasks as tasks, aws_apigatewayv2 as apigw,
+                     aws_apigatewayv2_integrations as apigw_int)
 from constructs import Construct
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
@@ -349,6 +350,24 @@ class MultiAgentStack(Stack):
         intake_fn.add_event_source(sources.SqsEventSource(
             task_queue, batch_size=5, report_batch_item_failures=True))
 
+        # ---------- Website + JSON API (API Gateway HTTP API -> Lambda) ----------
+        # One Lambda serves the single-page site at / and the API under /api, so the
+        # page and API share an origin (no CORS). Submissions go through the task queue.
+        api_fn = make_fn("WebApi", "handlers.api.handler", 15, uses_llm=False)
+        api_fn.add_environment("TASK_QUEUE_URL", task_queue.queue_url)
+        api_fn.add_environment("SITE_ACCESS_CODE", str(ctx("site_access_code") or ""))
+        task_queue.grant_send_messages(api_fn)
+        http_api = apigw.HttpApi(self, "WebsiteApi", api_name=f"{self.stack_name}-web",
+                                 description="Website and API for the multi-agent system")
+        integration = apigw_int.HttpLambdaIntegration("WebApiIntegration", api_fn)
+        http_api.add_routes(path="/", methods=[apigw.HttpMethod.GET], integration=integration)
+        http_api.add_routes(path="/api/{proxy+}", methods=[apigw.HttpMethod.GET, apigw.HttpMethod.POST],
+                            integration=integration)
+        # Throttle the public endpoint so nobody can run up the Bedrock bill
+        stage = http_api.default_stage.node.default_child
+        stage.default_route_settings = apigw.CfnStage.RouteSettingsProperty(
+            throttling_rate_limit=2, throttling_burst_limit=5)
+
         # ---------- CloudWatch dashboard + alarms ----------
         dashboard = cw.Dashboard(self, "Dashboard", dashboard_name=f"{self.stack_name}-dashboard")
         dashboard.add_widgets(
@@ -381,6 +400,7 @@ class MultiAgentStack(Stack):
                  alarm_description="A multi-agent workflow execution failed")
 
         # ---------- Outputs (read by scripts/mas.py) ----------
+        CfnOutput(self, "WebsiteUrl", value=f"{http_api.api_endpoint}/")
         CfnOutput(self, "TaskQueueUrl", value=task_queue.queue_url)
         CfnOutput(self, "ResultsQueueUrl", value=results_queue.queue_url)
         CfnOutput(self, "EventBusName", value=bus.event_bus_name)

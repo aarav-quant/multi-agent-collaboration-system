@@ -3,7 +3,8 @@
 # One-time setup (see README "CI/CD"):
 #   1. Create an IAM role GitHub can assume via OIDC, and save its ARN as the
 #      repository secret AWS_DEPLOY_ROLE_ARN.
-#   2. Set the repository variable AWS_REGION (e.g. ap-southeast-2).
+#   2. Set the repository variable AWS_REGION (e.g. ap-southeast-2). Until it is
+#      set, this workflow is skipped, so CI runs alone.
 #
 # Staged prompt rollout: run this workflow manually with
 #   shadow_prompt_version=v2  -> new prompts shadow-run next to the live ones
@@ -36,7 +37,8 @@ concurrency: deploy-${{ github.ref }}
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Stays off until the AWS_REGION repository variable is set (one-time setup in the README)
+    if: vars.AWS_REGION != '' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -62,7 +64,7 @@ jobs:
 
       - name: Deploy (new Step Functions version + live alias)
         run: |
-          cdk deploy --require-approval never \
+          cdk deploy MultiAgentCollaborationStack --require-approval never \
             -c git_sha=${{ github.sha }} \
             -c prompt_version=${{ inputs.prompt_version || 'v1' }} \
             -c shadow_prompt_version=${{ inputs.shadow_prompt_version || '' }}

@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Team</title>
+<meta name="description" content="Ask a question and watch a team of AI agents plan, research, debate, write and critique the answer on AWS.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+  :root {
+    --paper: #EEF2F5;
+    --sheet: #F8FAFB;
+    --ink: #17202B;
+    --muted: #5A6573;
+    --rule: #C8D1DA;
+    --teal: #0E6A6C;
+    --teal-wash: #D9ECEC;
+    --ochre: #A86A12;
+    --ochre-wash: #F3E6D0;
+    --danger: #A3302A;
+    --code: #E3E9EE;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #121A22; --sheet: #18222C; --ink: #E6ECF1; --muted: #98A4B1; --rule: #2C3946;
+      --teal: #4FB3B0; --teal-wash: #173537; --ochre: #D9A24E; --ochre-wash: #3A2D18;
+      --danger: #E07A72; --code: #22303C;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #121A22; --sheet: #18222C; --ink: #E6ECF1; --muted: #98A4B1; --rule: #2C3946;
+    --teal: #4FB3B0; --teal-wash: #173537; --ochre: #D9A24E; --ochre-wash: #3A2D18;
+    --danger: #E07A72; --code: #22303C;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 400 17px/1.55 "Schibsted Grotesk", system-ui, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 56px 16px 96px; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.4rem); line-height: 1.02; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 16px; max-width: 14ch; }
+  .lede { color: var(--muted); max-width: 62ch; margin: 0 0 40px; }
+  h2 { font-size: 1.25rem; letter-spacing: -0.01em; margin: 56px 0 16px; }
+
+  /* Ask */
+  form { background: var(--sheet); border: 1px solid var(--rule); border-radius: 14px; padding: 16px; }
+  label { display: block; font-weight: 600; margin-bottom: 8px; }
+  textarea, input[type=password] {
+    width: 100%; font: inherit; color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px;
+  }
+  textarea { min-height: 112px; resize: vertical; }
+  textarea:focus, input:focus, button:focus-visible, summary:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+  .examples button {
+    font: inherit; font-size: 0.86rem; color: var(--muted); background: none;
+    border: 1px dashed var(--rule); border-radius: 999px; padding: 4px 12px; cursor: pointer; text-align: left;
+  }
+  .examples button:hover { color: var(--ink); border-color: var(--muted); }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .primary {
+    font: inherit; font-weight: 600; color: var(--paper); background: var(--ink);
+    border: 0; border-radius: 10px; padding: 12px 22px; cursor: pointer;
+  }
+  .primary:disabled { opacity: 0.5; cursor: progress; }
+  .hint { color: var(--muted); font-size: 0.9rem; }
+  .error { color: var(--danger); font-size: 0.95rem; margin: 12px 0 0; }
+  #code-wrap { margin-top: 12px; }
+
+  /* The relay: the signature element */
+  .relay { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); position: relative; }
+  .relay::before { content: ""; position: absolute; left: 8%; right: 8%; top: 19px; height: 2px; background: var(--rule); }
+  .relay li { position: relative; text-align: center; padding: 0 4px; }
+  .relay .dot {
+    width: 40px; height: 40px; margin: 0 auto 10px; border-radius: 50%;
+    background: var(--paper); border: 2px solid var(--rule); display: grid; place-items: center;
+    font-weight: 700; font-size: 0.95rem; color: var(--muted); position: relative; z-index: 1;
+    transition: background-color .3s, border-color .3s, color .3s;
+  }
+  .relay .name { font-weight: 600; font-size: 0.95rem; line-height: 1.2; display: block; }
+  .relay .state { color: var(--muted); font-size: 0.8rem; display: block; margin-top: 2px; }
+  .relay li[data-s="active"] .dot { border-color: var(--teal); color: var(--teal); background: var(--teal-wash); animation: breathe 1.6s ease-in-out infinite; }
+  .relay li[data-s="done"] .dot { border-color: var(--teal); background: var(--teal); color: var(--paper); }
+  .relay li[data-s="done"] .state { color: var(--teal); }
+  .relay li.judge[data-s="active"] .dot { border-color: var(--ochre); color: var(--ochre); background: var(--ochre-wash); }
+  .relay li[data-s="failed"] .dot { border-color: var(--danger); color: var(--danger); }
+  @keyframes breathe { 50% { box-shadow: 0 0 0 7px var(--teal-wash); } }
+  @media (prefers-reduced-motion: reduce) { .relay li .dot { animation: none !important; transition: none; } }
+  @media (max-width: 640px) {
+    .relay { grid-template-columns: 1fr; gap: 14px; }
+    .relay::before { left: 19px; right: auto; top: 20px; bottom: 20px; width: 2px; height: auto; }
+    .relay li { display: grid; grid-template-columns: 40px 1fr; column-gap: 14px; text-align: left; align-items: center; }
+    .relay .dot { margin: 0; grid-row: span 2; }
+  }
+  #status-line { margin: 20px 0 0; color: var(--muted); }
+  #status-line strong { color: var(--ink); }
+
+  /* Minutes */
+  .minutes { border-left: 2px solid var(--rule); margin: 0; padding: 0; list-style: none; }
+  .minute { padding: 0 0 24px 20px; position: relative; }
+  .minute::before { content: ""; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--sheet); border: 2px solid var(--muted); }
+  .minute.judge::before { border-color: var(--ochre); background: var(--ochre-wash); }
+  .who { font-weight: 600; }
+  .when { color: var(--muted); font-size: 0.88rem; margin-left: 8px; }
+  .verdict { display: inline-block; margin: 6px 0; padding: 2px 10px; border-radius: 6px; background: var(--ochre-wash); color: var(--ochre); font-weight: 600; font-size: 0.9rem; }
+  details.say > summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+  .say-body { margin-top: 6px; }
+  .peek { color: var(--muted); margin: 4px 0 0; overflow-wrap: anywhere; }
+
+  /* Report */
+  .facts { display: flex; flex-wrap: wrap; gap: 0; margin: 0 0 24px; padding: 0; border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; background: var(--sheet); }
+  .facts div { flex: 1 1 120px; padding: 12px 16px; border-right: 1px solid var(--rule); }
+  .facts div:last-child { border-right: 0; }
+  .facts dt { color: var(--muted); font-size: 0.82rem; }
+  .facts dd { margin: 0; font-weight: 600; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .report { background: var(--sheet); border: 1px solid var(--rule); border-radius: 14px; padding: 8px 28px 24px; overflow-wrap: anywhere; }
+  .md h1, .md h2, .md h3 { letter-spacing: -0.01em; line-height: 1.25; margin: 28px 0 10px; }
+  .md h1 { font-size: 1.6rem; } .md h2 { font-size: 1.3rem; } .md h3 { font-size: 1.08rem; }
+  .md p, .md li { max-width: 72ch; }
+  .md pre { background: var(--code); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5; }
+  .md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+  .md :not(pre) > code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  .md table { border-collapse: collapse; display: block; overflow-x: auto; margin: 12px 0; }
+  .md th, .md td { border: 1px solid var(--rule); padding: 6px 10px; text-align: left; vertical-align: top; }
+  [hidden] { display: none !important; }
+  footer { margin-top: 72px; color: var(--muted); font-size: 0.88rem; max-width: 62ch; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ask a team of AI agents</h1>
+  <p class="lede">A planner splits your question, three specialists work on it and then argue with each other, a writer drafts the answer, and a critic sends it back until it is good enough. You can watch each step happen.</p>
+
+  <form id="ask" novalidate>
+    <label for="q">Your question</label>
+    <textarea id="q" maxlength="2000" required placeholder="For example: design a URL shortener, write its core API in Python and recommend a database"></textarea>
+    <div class="examples" aria-label="Example questions">
+      <button type="button">Design a URL shortener service, write its core API in Python, and recommend a database</button>
+      <button type="button">Design a fraud detection system for UPI payments and list the main risks</button>
+      <button type="button">Should a small kirana store start selling on ONDC? Compare costs, benefits and risks</button>
+    </div>
+    <div id="code-wrap" hidden>
+      <label for="code">Access code</label>
+      <input id="code" type="password" autocomplete="off">
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="primary" id="go" type="submit">Ask the team</button>
+      <span class="hint">Takes about a minute. Each answer costs a fraction of a cent.</span>
+    </div>
+    <p class="error" id="err" role="alert" hidden></p>
+  </form>
+
+  <section id="run" hidden aria-live="polite">
+    <h2 id="run-title">The team is working</h2>
+    <ol class="relay" id="relay">
+      <li data-k="plan"><span class="dot">1</span><span class="name">Plan</span><span class="state">waiting</span></li>
+      <li data-k="work"><span class="dot">2</span><span class="name">Specialists</span><span class="state">waiting</span></li>
+      <li data-k="debate"><span class="dot">3</span><span class="name">Debate</span><span class="state">waiting</span></li>
+      <li data-k="write"><span class="dot">4</span><span class="name">Write</span><span class="state">waiting</span></li>
+      <li data-k="judge" class="judge"><span class="dot">5</span><span class="name">Critique</span><span class="state">waiting</span></li>
+      <li data-k="final"><span class="dot">6</span><span class="name">Answer</span><span class="state">waiting</span></li>
+    </ol>
+    <p id="status-line"></p>
+
+    <h2>What each agent said</h2>
+    <ol class="minutes" id="minutes"></ol>
+  </section>
+
+  <section id="result" hidden>
+    <h2>The answer</h2>
+    <dl class="facts" id="facts"></dl>
+    <article class="report md" id="report"></article>
+  </section>
+
+  <footer>Runs on Amazon Bedrock, AWS Step Functions, Lambda, DynamoDB, SQS, EventBridge, S3, CloudWatch and X-Ray. Questions and answers are stored for 30 days.</footer>
+</main>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const NAMES = { planner: "Planner", researcher: "Researcher", coder: "Coder", analyst: "Analyst", critic: "Critic" };
+  const SPECIALISTS = ["researcher", "coder", "analyst"];
+  let timer = null, started = 0, codeRequired = false;
+
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  // Markdown when the libraries loaded; otherwise safe plain text, so the page keeps working
+  const md = (text) => (window.marked && window.DOMPurify)
+    ? DOMPurify.sanitize(marked.parse(text || ""))
+    : `<pre style="white-space:pre-wrap">${esc(text || "")}</pre>`;
+
+  fetch("/api/config").then((r) => r.json()).then((c) => {
+    codeRequired = !!c.access_code_required;
+    $("#code-wrap").hidden = !codeRequired;
+  }).catch(() => {});
+
+  document.querySelectorAll(".examples button").forEach((b) =>
+    b.addEventListener("click", () => { $("#q").value = b.textContent; $("#q").focus(); }));
+
+  $("#ask").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const request = $("#q").value.trim();
+    showError("");
+    if (request.length < 10) return showError("Write a question of at least 10 characters.");
+    $("#go").disabled = true; $("#go").textContent = "Sending…";
+    try {
+      const r = await fetch("/api/tasks", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ request, access_code: $("#code").value }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "The question could not be sent.");
+      location.hash = "task=" + data.task_id;
+      track(data.task_id);
+    } catch (err) {
+      showError(err.message);
+      $("#go").disabled = false; $("#go").textContent = "Ask the team";
+    }
+  });
+
+  function showError(text) { $("#err").textContent = text; $("#err").hidden = !text; }
+
+  function track(id) {
+    clearTimeout(timer);
+    started = Date.now();
+    $("#run").hidden = false; $("#result").hidden = true;
+    $("#minutes").innerHTML = ""; $("#run-title").textContent = "The team is working";
+    setStages({});
+    $("#run").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    poll(id);
+  }
+
+  async function poll(id) {
+    try {
+      const r = await fetch("/api/tasks/" + encodeURIComponent(id), { cache: "no-store" });
+      const t = await r.json();
+      render(t);
+      if (t.status === "COMPLETED" || t.status === "FAILED") { done(); return; }
+    } catch (_) { /* network blip: try again */ }
+    if (Date.now() - started > 10 * 60 * 1000) {
+      $("#status-line").textContent = "This is taking longer than usual. Refresh the page to keep watching.";
+      done(); return;
+    }
+    timer = setTimeout(() => poll(id), 2500);
+  }
+
+  function done() { $("#go").disabled = false; $("#go").textContent = "Ask the team"; }
+
+  function stagesFor(t) {
+    const msgs = t.messages || [];
+    const by = (f) => msgs.filter(f);
+    const plan = by((m) => m.agent === "planner");
+    let planned = [];
+    try { planned = plan.length ? JSON.parse(plan[0].content) : []; } catch (_) {}
+    const work = by((m) => SPECIALISTS.includes(m.agent));
+    const debate = by((m) => m.agent.endsWith("-debate"));
+    const critic = by((m) => m.agent === "critic");
+    const st = t.status || "QUEUED";
+    const finished = st === "COMPLETED";
+    const debateNeeded = planned.length > 1;
+    const s = {};
+    s.plan = plan.length ? "done" : ["RUNNING", "PLANNING"].includes(st) ? "active" : "waiting";
+    s.work = !plan.length ? "waiting" : work.length >= planned.length ? "done" : "active";
+    s.debate = s.work !== "done" ? "waiting" : !debateNeeded ? "skipped"
+      : (debate.length >= planned.length || ["WRITING", "REVIEWING", "REVIEWED"].includes(st) || finished) ? "done" : "active";
+    s.write = finished || ["REVIEWING", "REVIEWED"].includes(st) ? "done" : st === "WRITING" ? "active" : critic.length ? "done" : "waiting";
+    s.judge = finished ? "done" : st === "REVIEWING" ? "active" : critic.length ? "done" : "waiting";
+    s.final = finished ? "done" : "waiting";
+    if (st === "FAILED") Object.keys(s).forEach((k) => { if (s[k] === "active" || (s[k] === "waiting" && k === "final")) s[k] = "failed"; });
+    return { s, planned, critic };
+  }
+
+  function setStages(s) {
+    const words = { waiting: "waiting", active: "working", done: "done", skipped: "not needed", failed: "stopped" };
+    document.querySelectorAll("#relay li").forEach((li) => {
+      const v = s[li.dataset.k] || "waiting";
+      li.dataset.s = v === "skipped" ? "done" : v;
+      li.querySelector(".state").textContent = words[v];
+    });
+  }
+
+  function render(t) {
+    const { s, planned, critic } = stagesFor(t);
+    setStages(s);
+    const revisions = critic.length;
+    const lines = {
+      QUEUED: "Your question is in the queue.",
+      RUNNING: "The planner is reading your question.",
+      PLANNING: planned.length ? `${planned.length} specialist${planned.length > 1 ? "s are" : " is"} working in parallel.` : "The planner is splitting the work.",
+      WRITING: revisions ? `The writer is revising the draft (round ${revisions + 1}).` : "The writer is drafting the answer.",
+      REVIEWING: "The critic is judging the draft.",
+      REVIEWED: "The critic has given a verdict.",
+      COMPLETED: "Done.",
+      FAILED: "The run stopped: " + (t.error || "an agent failed") + ". Try asking again.",
+    };
+    $("#status-line").innerHTML = (t.title ? `<strong>${esc(t.title)}</strong>. ` : "") + esc(lines[t.status] || "Working.");
+    renderMinutes(t.messages || [], planned);
+    if (t.status === "COMPLETED") renderResult(t);
+    if (t.status === "FAILED") $("#run-title").textContent = "The team stopped";
+  }
+
+  function renderMinutes(msgs, planned) {
+    const list = $("#minutes");
+    const inbox = msgs.filter((m) => m.agent.startsWith("inbox-")).length;
+    // Show the conversation in the order it happens: plan, round 1, debate, critic verdicts
+    const rank = (m) => m.agent === "planner" ? 0 : m.agent.endsWith("-debate") ? 2 : m.agent === "critic" ? 3 : 1;
+    const items = msgs.filter((m) => !m.agent.startsWith("inbox-"))
+      .sort((a, b) => rank(a) - rank(b) || a.index - b.index);
+    if (list.childElementCount === items.length + (inbox ? 1 : 0)) return;
+    list.innerHTML = "";
+    for (const m of items) list.appendChild(minute(m, planned));
+    if (inbox) {
+      const li = document.createElement("li"); li.className = "minute";
+      li.innerHTML = `<span class="who">Mailbox</span><span class="when">peer messages</span><p class="peek">${inbox} message${inbox > 1 ? "s" : ""} passed between specialists through EventBridge and SQS.</p>`;
+      list.appendChild(li);
+    }
+  }
+
+  function minute(m, planned) {
+    const li = document.createElement("li");
+    const base = m.agent.replace("-debate", "");
+    const isDebate = m.agent.endsWith("-debate");
+    li.className = "minute" + (m.agent === "critic" ? " judge" : "");
+    let when = isDebate ? "debate" : SPECIALISTS.includes(m.agent) ? "round 1" : "";
+    let body = "";
+    if (m.agent === "planner") {
+      let plan = [];
+      try { plan = JSON.parse(m.content); } catch (_) {}
+      body = "<ul>" + plan.map((p) => `<li><strong>${esc(NAMES[p.agent] || p.agent)}</strong>: ${esc(p.instruction)}</li>`).join("") + "</ul>";
+      when = "delegates the work";
+    } else if (m.agent === "critic") {
+      let v = {};
+      try { v = JSON.parse(m.content); } catch (_) {}
+      when = `draft ${m.index + 1}`;
+      const verdict = v.approved ? `Approved, ${v.score}/10` : `Sent back, ${v.score ?? "?"}/10`;
+      const conflicts = (v.unresolved_conflicts || []).length ? `<p class="peek">Unresolved: ${esc(v.unresolved_conflicts.join("; "))}</p>` : "";
+      body = `<span class="verdict">${esc(verdict)}</span>${v.feedback ? `<p class="peek">${esc(v.feedback)}</p>` : ""}${conflicts}`;
+    } else {
+      const prose = m.content.replace(/```[\s\S]*?(```|$)/g, "\n").replace(/[#*_`>|]/g, "");
+      const first = prose.split("\n").map((l) => l.replace(/^\s*[-\d.]+\s+/, "").trim()).find((l) => l.length > 3)
+        || (m.content.includes("```") ? "Wrote code (open to read it)." : "");
+      body = `<p class="peek">${esc(first.slice(0, 220))}${first.length > 220 ? "…" : ""}</p>
+        <details class="say"><summary>Read all</summary><div class="say-body md">${md(m.content)}</div></details>`;
+    }
+    li.innerHTML = `<span class="who">${esc(NAMES[base] || base)}</span><span class="when">${esc(when)}</span>${body}`;
+    return li;
+  }
+
+  function renderResult(t) {
+    if (!$("#result").hidden) return;
+    $("#run-title").textContent = "The team is done";
+    const money = (n) => "$" + Number(n || 0).toFixed(4);
+    const facts = [
+      ["Time", (t.wall_clock_s ?? "?") + " s"],
+      ["Agent calls", t.agent_calls ?? "?"],
+      ["Tokens", Number(t.total_tokens || 0).toLocaleString("en-IN")],
+      ["Cost", money(t.est_cost_usd)],
+      ["Critic score", (t.score ?? "?") + "/10"],
+    ];
+    $("#facts").innerHTML = facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
+    $("#report").innerHTML = md(t.report);
+    $("#result").hidden = false;
+  }
+
+  const m = location.hash.match(/task=([A-Za-z0-9_-]+)/);
+  if (m) track(m[1]);
+})();
+</script>
+</body>
+</html>
